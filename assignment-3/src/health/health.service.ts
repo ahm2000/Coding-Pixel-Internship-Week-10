@@ -39,12 +39,21 @@ export class HealthService {
   // X1: a slow/hanging connection must still answer within the timeout -
   // a health check that blocks forever takes the load balancer down with
   // it, which is worse than reporting unhealthy.
+  //
+  // `Promise.race` doesn't cancel the loser: a successful query still
+  // leaves the timeout's `setTimeout` running in the background for
+  // however long is left on the clock. Found live via Jest's own "worker
+  // process failed to exit gracefully" warning on an otherwise-passing
+  // run - harmless in a long-lived server process, but a real dangling
+  // timer, and unnecessary either way. Cleared explicitly once the race
+  // is decided, whichever side won.
   private async checkDatabase(): Promise<CheckResult> {
+    let timer: NodeJS.Timeout;
     try {
       await Promise.race([
         this.dataSource.query('SELECT 1'),
         new Promise((_resolve, reject) => {
-          setTimeout(
+          timer = setTimeout(
             () =>
               reject(
                 new Error(`timed out after ${DATABASE_CHECK_TIMEOUT_MS}ms`),
@@ -59,6 +68,8 @@ export class HealthService {
         status: 'error',
         message: error instanceof Error ? error.message : 'unknown error',
       };
+    } finally {
+      clearTimeout(timer!);
     }
   }
 }

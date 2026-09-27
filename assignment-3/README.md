@@ -133,6 +133,17 @@ it to *never resolve* -> the check still returns within the test's 3s
 budget with `"timed out after 1500ms"` (X1's "never hang"), proving the
 timeout branch actually fires and actually resolves.
 
+**A real bug this same test caught**: running that test alone (`npx jest
+-t "..."`) printed Jest's own `"A worker process has failed to exit
+gracefully... Active timers can also cause this"` warning even though the
+test passed. `Promise.race` doesn't cancel the loser - a *successful*
+`SELECT 1` still left the timeout's `setTimeout` running in the
+background for whatever time was left on its clock. Harmless in a
+long-lived server process, but a genuine dangling timer and easy to fix:
+`checkDatabase()` now stores the timer and `clearTimeout()`s it in a
+`finally` block regardless of which side of the race won. The warning is
+gone; same assertions, same pass/fail result.
+
 **Why a live "kill the database mid-request" demo wasn't attempted**:
 this machine's shared Postgres instance is used by every other week in
 this program, and the `postgres` role every week connects as is a

@@ -1,0 +1,84 @@
+name: CI — assignment-2
+
+on:
+  push:
+    branches: [Week10/Assignment2]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: assignment-2
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: week10_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: assignment-2/package-lock.json
+      - run: npm ci
+      # X3's guard compares .env.test against .env and refuses to run if
+      # they'd point at the same database - .env here is a placeholder
+      # never actually connected to in CI, just something for the guard
+      # to diff against.
+      - name: Write env files for CI
+        run: |
+          cat <<'EOF' > .env
+          DB_HOST=localhost
+          DB_PORT=5432
+          DB_USERNAME=postgres
+          DB_PASSWORD=postgres
+          DB_NAME=week10_dev
+          PORT=3000
+          JWT_SECRET=ci-only-secret
+          JWT_ACCESS_EXPIRES_IN=15m
+          JWT_REFRESH_EXPIRES_IN=7d
+          ARGON2_MEMORY_COST=19456
+          ARGON2_TIME_COST=2
+          CORS_ORIGIN=http://localhost:3000
+          NODE_ENV=development
+          EOF
+          cat <<'EOF' > .env.test
+          DB_HOST=localhost
+          DB_PORT=5432
+          DB_USERNAME=postgres
+          DB_PASSWORD=postgres
+          DB_NAME=week10_test
+          JWT_SECRET=ci-only-secret
+          JWT_ACCESS_EXPIRES_IN=15m
+          JWT_REFRESH_EXPIRES_IN=7d
+          ARGON2_MEMORY_COST=1024
+          ARGON2_TIME_COST=2
+          CORS_ORIGIN=http://localhost:3000
+          NODE_ENV=test
+          EOF
+      # C3: the same command a reviewer runs locally - `npm test` runs the
+      # journey against the real Postgres service container above and
+      # enforces the >=70%-statements-on-services coverage threshold.
+      - run: npm test
+      # X1: a coverage number nobody can see after the run is a number
+      # nobody uses - upload the HTML/lcov report as a downloadable artifact
+      # from the run page.
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: assignment-2/coverage
